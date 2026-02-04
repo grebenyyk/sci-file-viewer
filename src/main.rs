@@ -47,10 +47,15 @@ struct App {
     // UI state
     show_chart: bool,
     needs_resize: bool, // Trigger terminal resize to fix rendering
+    show_recent_files: bool, // Show recent files popup
 
     // Chart data
     chart_data: Vec<(f64, f64)>,
     chart_bounds: ([f64; 2], [f64; 2]), // (x_bounds, y_bounds)
+
+    // Recent files
+    recent_files: Vec<PathBuf>,
+    recent_files_selected: usize,
 }
 
 impl App {
@@ -79,8 +84,11 @@ impl App {
             file_size: 0,
             show_chart: true,
             needs_resize: false,
+            show_recent_files: false,
             chart_data: Vec::new(),
             chart_bounds: ([0.0, 1.0], [0.0, 1.0]),
+            recent_files: Vec::new(),
+            recent_files_selected: 0,
         };
         app.refresh_directory();
         app
@@ -179,15 +187,35 @@ impl App {
         }
     }
 
+    /// Add a file to recent files list
+    fn add_to_recent_files(&mut self, path: &PathBuf) {
+        // Remove if already exists to move it to front
+        self.recent_files.retain(|p| p != path);
+        // Add to front
+        self.recent_files.insert(0, path.clone());
+        // Keep only 10 most recent
+        self.recent_files.truncate(10);
+    }
+
     /// Open and read a file
     fn open_file(&mut self, path: &PathBuf) {
         self.current_file = Some(path.clone());
         self.scroll_offset = 0;
         self.needs_resize = true; // Trigger resize to fix terminal rendering
         self.chart_data.clear();
+        
+        // Add to recent files
+        self.add_to_recent_files(path);
 
-        // Get file size
+        // Get file size and metadata (always available regardless of content)
         self.file_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let (created, modified) = self.get_file_dates(path);
+        let file_metadata = format!(
+            "Size: {}\nCreated: {}\nModified: {}",
+            Self::format_size(self.file_size),
+            created,
+            modified
+        );
 
         match fs::read_to_string(path) {
             Ok(content) => {
@@ -199,10 +227,7 @@ impl App {
                 // Try to parse two-column numeric data
                 self.parse_chart_data(&content);
 
-                // Get file metadata for dates
-                let (created, modified) = self.get_file_dates(path);
-
-                // Update stats with size
+                // Update stats with size, lines, dates, and chart info
                 let line_count = self.file_content.len();
                 let chart_info = if !self.chart_data.is_empty() {
                     format!("\nData points: {}", self.chart_data.len())
@@ -210,21 +235,17 @@ impl App {
                     String::new()
                 };
                 self.file_stats = format!(
-                    "Size: {}\nLines: {}{}\nCreated: {}\nModified: {}",
-                    Self::format_size(self.file_size),
+                    "{}\nLines: {}{}",
+                    file_metadata,
                     line_count,
-                    chart_info,
-                    created,
-                    modified
+                    chart_info
                 );
             }
-            Err(e) => {
+            Err(_e) => {
                 self.file_content = vec![
-                    format!("Error reading file: {}", e),
-                    "".to_string(),
-                    "This might be a binary file or permission issue.".to_string(),
+                    "Binary file — no text content to display".to_string(),
                 ];
-                self.file_stats = format!("Error: {}", e);
+                self.file_stats = file_metadata;
             }
         }
     }
@@ -434,6 +455,42 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
         terminal.draw(|f| ui(f, app))?;
 
         if let Event::Key(key) = event::read()? {
+            // Handle recent files popup first
+            if app.show_recent_files {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('h') => {
+                        app.show_recent_files = false;
+                        continue;
+                    }
+                    KeyCode::Up => {
+                        if app.recent_files.is_empty() {
+                            continue;
+                        }
+                        app.recent_files_selected = app.recent_files_selected.checked_sub(1)
+                            .unwrap_or(app.recent_files.len() - 1);
+                        continue;
+                    }
+                    KeyCode::Down => {
+                        if app.recent_files.is_empty() {
+                            continue;
+                        }
+                        app.recent_files_selected = (app.recent_files_selected + 1) % app.recent_files.len();
+                        continue;
+                    }
+                    KeyCode::Enter => {
+                        if !app.recent_files.is_empty() {
+                            if let Some(path) = app.recent_files.get(app.recent_files_selected) {
+                                let path = path.clone();
+                                app.show_recent_files = false;
+                                app.open_file(&path);
+                            }
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            
             match key.code {
                 KeyCode::Char('q') => {
                     app.save_last_directory();
@@ -517,6 +574,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                     // Refresh directory
                     app.refresh_directory();
                 }
+                KeyCode::Char('h') => {
+                    // Show recent files popup
+                    app.show_recent_files = true;
+                    app.recent_files_selected = 0;
+                }
                 _ => {}
             }
         }
@@ -561,6 +623,11 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Render status bar
     render_status_bar(f, app, vertical_chunks[2]);
+
+    // Render recent files popup if enabled
+    if app.show_recent_files {
+        render_recent_files_popup(f, app);
+    }
 }
 
 fn render_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
@@ -975,6 +1042,14 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(" Chart ", Style::default().fg(Color::Rgb(171, 178, 191))),
         Span::raw(" "),
         Span::styled(
+            " h ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(229, 192, 123)),
+        ),
+        Span::styled(" History ", Style::default().fg(Color::Rgb(171, 178, 191))),
+        Span::raw(" "),
+        Span::styled(
             " n ",
             Style::default()
                 .fg(Color::Rgb(40, 44, 52))
@@ -1014,4 +1089,77 @@ fn render_path_bar(f: &mut Frame, app: &App, area: Rect) {
     ); // Dark background
 
     f.render_widget(path_bar, area);
+}
+
+fn render_recent_files_popup(f: &mut Frame, app: &App) {
+    let area = f.area();
+    
+    // Calculate popup size (centered, 50% width, up to 14 lines height)
+    let popup_width = (area.width as f32 * 0.5).min(60.0).max(30.0) as u16;
+    let popup_height = if app.recent_files.is_empty() {
+        5 // Minimum height for "no history" message
+    } else {
+        (app.recent_files.len() as u16 + 4).min(14)
+    };
+    
+    let popup_x = (area.width - popup_width) / 2;
+    let popup_y = (area.height - popup_height) / 2;
+    
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+    
+    // Clear the popup area
+    f.render_widget(Clear, popup_area);
+    
+    if app.recent_files.is_empty() {
+        // Show "no history" message
+        let message = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  No history",
+                Style::default().fg(Color::Rgb(92, 99, 112)), // Dark gray
+            )),
+        ])
+        .block(
+            Block::default()
+                .title(" Recent Files ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Rgb(198, 120, 221))), // Purple
+        );
+        f.render_widget(message, popup_area);
+        return;
+    }
+    
+    // Create list items showing only the file name (end part of path)
+    let items: Vec<ListItem> = app
+        .recent_files
+        .iter()
+        .enumerate()
+        .map(|(i, path)| {
+            // Get the file name (end part of path)
+            let display_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Unknown");
+            
+            let style = if i == app.recent_files_selected {
+                Style::default()
+                    .fg(Color::Rgb(40, 44, 52)) // Dark background text
+                    .bg(Color::Rgb(97, 175, 239)) // Blue highlight
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Rgb(171, 178, 191)) // Light gray
+            };
+            
+            ListItem::new(Line::from(Span::styled(display_name.to_string(), style)))
+        })
+        .collect();
+    
+    let list = List::new(items).block(
+        Block::default()
+            .title(" Recent Files ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(198, 120, 221))), // Purple
+    );
+    
+    f.render_widget(list, popup_area);
 }
