@@ -1,16 +1,16 @@
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     symbols::Marker,
     text::{Line, Span},
     widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, List, ListItem, Paragraph},
-    Frame, Terminal,
 };
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
@@ -26,48 +26,48 @@ struct FileEntry {
 struct App {
     // File tree state
     current_directory: PathBuf,
-    startup_directory: PathBuf,  // Directory where app was launched
+    startup_directory: PathBuf, // Directory where app was launched
     entries: Vec<FileEntry>,
-    
+
     // UI settings
-    use_nerd_fonts: bool,  // Use nerd font icons vs emoji fallback
+    use_nerd_fonts: bool, // Use nerd font icons vs emoji fallback
     selected_index: usize,
-    file_tree_scroll: usize,  // Scroll offset for file tree
-    
+    file_tree_scroll: usize, // Scroll offset for file tree
+
     // Text viewer state
     file_content: Vec<String>,
     scroll_offset: usize,
-    visible_height: usize,  // Track visible height for page navigation
-    
+    visible_height: usize, // Track visible height for page navigation
+
     // Stats/info
     file_stats: String,
     current_file: Option<PathBuf>,
     file_size: u64,
-    
+
     // Selected file info (for file tree focus)
     selected_file_path: Option<PathBuf>,
     selected_file_size: u64,
     selected_file_stats: String,
-    
+
     // UI state
     show_chart: bool,
-    needs_resize: bool,  // Trigger terminal resize to fix rendering
-    
+    needs_resize: bool, // Trigger terminal resize to fix rendering
+
     // Chart data
     chart_data: Vec<(f64, f64)>,
-    chart_bounds: ([f64; 2], [f64; 2]),  // (x_bounds, y_bounds)
+    chart_bounds: ([f64; 2], [f64; 2]), // (x_bounds, y_bounds)
 }
 
 impl App {
     fn new() -> App {
         let startup_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let start_dir = Self::load_last_directory().unwrap_or_else(|| startup_dir.clone());
-        
+
         let mut app = App {
             current_directory: start_dir,
             startup_directory: startup_dir,
             entries: Vec::new(),
-            use_nerd_fonts: true,  // Set to false for emoji fallback
+            use_nerd_fonts: true, // Set to false for emoji fallback
             selected_index: 0,
             file_tree_scroll: 0,
             file_content: vec![
@@ -106,11 +106,7 @@ impl App {
         let reader = BufReader::new(file);
         let line = reader.lines().next()?.ok()?;
         let path = PathBuf::from(line);
-        if path.is_dir() {
-            Some(path)
-        } else {
-            None
-        }
+        if path.is_dir() { Some(path) } else { None }
     }
 
     /// Save current directory to config
@@ -167,17 +163,15 @@ impl App {
                 .collect();
 
             // Sort: directories first, then files, both alphabetically
-            items.sort_by(|a, b| {
-                match (a.is_dir, b.is_dir) {
-                    (true, false) => std::cmp::Ordering::Less,
-                    (false, true) => std::cmp::Ordering::Greater,
-                    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-                }
+            items.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
             });
 
             self.entries.extend(items);
         }
-        
+
         self.update_selected_file_info();
     }
 
@@ -199,7 +193,7 @@ impl App {
     fn open_file(&mut self, path: &PathBuf) {
         self.current_file = Some(path.clone());
         self.scroll_offset = 0;
-        self.needs_resize = true;  // Trigger resize to fix terminal rendering
+        self.needs_resize = true; // Trigger resize to fix terminal rendering
         self.chart_data.clear();
 
         // Get file size
@@ -211,13 +205,13 @@ impl App {
                 if self.file_content.is_empty() {
                     self.file_content.push("(empty file)".to_string());
                 }
-                
+
                 // Try to parse two-column numeric data
                 self.parse_chart_data(&content);
-                
+
                 // Get file metadata for dates
                 let (created, modified) = self.get_file_dates(path);
-                
+
                 // Update stats with size
                 let line_count = self.file_content.len();
                 let chart_info = if !self.chart_data.is_empty() {
@@ -250,7 +244,7 @@ impl App {
         const KB: u64 = 1024;
         const MB: u64 = KB * 1024;
         const GB: u64 = MB * 1024;
-        
+
         if bytes >= GB {
             format!("{:.2} GB", bytes as f64 / GB as f64)
         } else if bytes >= MB {
@@ -265,78 +259,84 @@ impl App {
     /// Get file creation and modification dates
     fn get_file_dates(&self, path: &PathBuf) -> (String, String) {
         use std::time::{SystemTime, UNIX_EPOCH};
-        
+
         let created = fs::metadata(path)
             .and_then(|m| m.created())
             .unwrap_or(SystemTime::UNIX_EPOCH);
-            
+
         let modified = fs::metadata(path)
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);
-            
+
         let format_datetime = |time: SystemTime| {
             let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
             let datetime = chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
-                .unwrap_or_else(|| chrono::DateTime::UNIX_EPOCH);
+                .unwrap_or(chrono::DateTime::UNIX_EPOCH);
             datetime.format("%Y-%m-%d %H:%M:%S").to_string()
         };
-        
+
         (format_datetime(created), format_datetime(modified))
     }
 
     /// Parse two-column numeric data from file content
     fn parse_chart_data(&mut self, content: &str) {
         let mut data: Vec<(f64, f64)> = Vec::new();
-        
+
         for line in content.lines() {
             let line = line.trim();
-            
+
             // Skip empty lines and comments
             if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
                 continue;
             }
-            
+
             // Split by whitespace, comma, or tab
-            let parts: Vec<&str> = line.split(|c: char| c.is_whitespace() || c == ',')
+            let parts: Vec<&str> = line
+                .split(|c: char| c.is_whitespace() || c == ',')
                 .filter(|s| !s.is_empty())
                 .collect();
-            
+
             // We need exactly 2 numeric columns (or at least 2 parseable numbers)
-            if parts.len() >= 2 {
-                if let (Ok(x), Ok(y)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
-                    // Filter out NaN and infinity
-                    if x.is_finite() && y.is_finite() {
-                        data.push((x, y));
-                    }
-                }
+            if parts.len() >= 2
+                && let (Ok(x), Ok(y)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>())
+                && x.is_finite()
+                && y.is_finite()
+            {
+                data.push((x, y));
             }
         }
-        
+
         // Only consider it valid chart data if we have at least 2 points
         if data.len() >= 2 {
             // Calculate bounds
             let x_min = data.iter().map(|(x, _)| *x).fold(f64::INFINITY, f64::min);
-            let x_max = data.iter().map(|(x, _)| *x).fold(f64::NEG_INFINITY, f64::max);
+            let x_max = data
+                .iter()
+                .map(|(x, _)| *x)
+                .fold(f64::NEG_INFINITY, f64::max);
             let y_min = data.iter().map(|(_, y)| *y).fold(f64::INFINITY, f64::min);
-            let y_max = data.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);
-            
+            let y_max = data
+                .iter()
+                .map(|(_, y)| *y)
+                .fold(f64::NEG_INFINITY, f64::max);
+
             // Add small padding to bounds (5%)
             let x_padding = (x_max - x_min).abs() * 0.05;
             let y_padding = (y_max - y_min).abs() * 0.05;
-            
+
             // Handle case where all values are the same
             let x_bounds = if x_max == x_min {
                 [x_min - 1.0, x_max + 1.0]
             } else {
                 [x_min - x_padding, x_max + x_padding]
             };
-            
+
             let y_bounds = if y_max == y_min {
                 [y_min - 1.0, y_max + 1.0]
             } else {
                 [y_min - y_padding, y_max + y_padding]
             };
-            
+
             self.chart_bounds = (x_bounds, y_bounds);
             self.chart_data = data;
         }
@@ -347,41 +347,41 @@ impl App {
         if data.len() <= target_points {
             return data.to_vec();
         }
-        
+
         let mut result: Vec<(f64, f64)> = Vec::with_capacity(target_points);
-        
+
         // Always include first point
         result.push(data[0]);
-        
+
         // Calculate bucket size
         let bucket_size = (data.len() - 2) as f64 / (target_points - 2) as f64;
-        
+
         for i in 1..(target_points - 1) {
             let start = (1.0 + (i - 1) as f64 * bucket_size) as usize;
             let end = (1.0 + i as f64 * bucket_size) as usize;
             let end = end.min(data.len() - 1);
-            
+
             if start >= end {
                 continue;
             }
-            
+
             // Find min and max Y in this bucket
             let mut min_idx = start;
             let mut max_idx = start;
             let mut min_y = data[start].1;
             let mut max_y = data[start].1;
-            
-            for j in start..end {
-                if data[j].1 < min_y {
-                    min_y = data[j].1;
+
+            for (j, point) in data.iter().enumerate().take(end).skip(start) {
+                if point.1 < min_y {
+                    min_y = point.1;
                     min_idx = j;
                 }
-                if data[j].1 > max_y {
-                    max_y = data[j].1;
+                if point.1 > max_y {
+                    max_y = point.1;
                     max_idx = j;
                 }
             }
-            
+
             // Add min and max in X order to preserve shape
             if min_idx < max_idx {
                 result.push(data[min_idx]);
@@ -395,10 +395,10 @@ impl App {
                 }
             }
         }
-        
+
         // Always include last point
         result.push(data[data.len() - 1]);
-        
+
         result
     }
 
@@ -407,12 +407,12 @@ impl App {
         if let Some(entry) = self.entries.get(self.selected_index) {
             let full_path = self.current_directory.join(&entry.name);
             self.selected_file_path = Some(full_path.clone());
-            
+
             if entry.is_dir {
                 // For directories, calculate size and file count
                 let (dir_size, file_count) = self.calculate_directory_stats(&full_path);
                 self.selected_file_size = dir_size;
-                
+
                 self.selected_file_stats = format!(
                     "Type: Directory\nSize: {}\nFiles: {}",
                     Self::format_size(dir_size),
@@ -425,7 +425,7 @@ impl App {
                         self.selected_file_size = metadata.len();
                         let (created, modified) = self.get_file_dates(&full_path);
                         let line_count = self.estimate_line_count(&full_path);
-                        
+
                         self.selected_file_stats = format!(
                             "Type: File\nSize: {}\nLines: {}\nCreated: {}\nModified: {}",
                             Self::format_size(self.selected_file_size),
@@ -464,18 +464,20 @@ impl App {
         let mut total_size = 0u64;
         let mut file_count = 0usize;
 
-        fn walk_dir(dir_path: &PathBuf, total_size: &mut u64, file_count: &mut usize) -> std::io::Result<()> {
+        fn walk_dir(
+            dir_path: &PathBuf,
+            total_size: &mut u64,
+            file_count: &mut usize,
+        ) -> std::io::Result<()> {
             for entry in fs::read_dir(dir_path)? {
                 let entry = entry?;
                 let path = entry.path();
-                
+
                 if path.is_dir() {
                     walk_dir(&path, total_size, file_count)?;
-                } else {
-                    if let Ok(metadata) = entry.metadata() {
-                        *total_size += metadata.len();
-                        *file_count += 1;
-                    }
+                } else if let Ok(metadata) = entry.metadata() {
+                    *total_size += metadata.len();
+                    *file_count += 1;
                 }
             }
             Ok(())
@@ -516,10 +518,7 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &mut App,
-) -> io::Result<()> {
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
     loop {
         // Clear the whole terminal when switching files to fix artifacts
         if app.needs_resize {
@@ -629,9 +628,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(1),      // Main content takes remaining space
-            Constraint::Length(1),   // Path bar (1 line)
-            Constraint::Length(1),   // Status bar (1 line)
+            Constraint::Min(1),    // Main content takes remaining space
+            Constraint::Length(1), // Path bar (1 line)
+            Constraint::Length(1), // Status bar (1 line)
         ])
         .split(f.area());
 
@@ -639,9 +638,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(20),  // File tree
-            Constraint::Percentage(50),  // Content viewer
-            Constraint::Percentage(30),  // Right panel (chart + stats)
+            Constraint::Percentage(20), // File tree
+            Constraint::Percentage(50), // Content viewer
+            Constraint::Percentage(30), // Right panel (chart + stats)
         ])
         .split(vertical_chunks[0]);
 
@@ -653,24 +652,24 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Render right panel (chart + stats)
     render_right_panel(f, app, main_chunks[2]);
-    
+
     // Render path bar
     render_path_bar(f, app, vertical_chunks[1]);
-    
+
     // Render status bar
     render_status_bar(f, app, vertical_chunks[2]);
 }
 
 fn render_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
     let visible_height = area.height.saturating_sub(2) as usize; // Account for borders
-    
+
     // Adjust scroll to keep selected item visible
     if app.selected_index < app.file_tree_scroll {
         app.file_tree_scroll = app.selected_index;
     } else if app.selected_index >= app.file_tree_scroll + visible_height {
         app.file_tree_scroll = app.selected_index.saturating_sub(visible_height - 1);
     }
-    
+
     let items: Vec<ListItem> = app
         .entries
         .iter()
@@ -681,51 +680,88 @@ fn render_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
             let (icon, color) = if entry.is_dir {
                 if entry.name == ".." {
                     // Parent directory - nf-fa-arrow_up \uf062
-                    if app.use_nerd_fonts { ("\u{f062} ", Color::Rgb(97, 175, 239)) }  // Blue
-                    else { ("⬆️ ", Color::Rgb(97, 175, 239)) }
+                    if app.use_nerd_fonts {
+                        ("\u{f062} ", Color::Rgb(97, 175, 239))
+                    }
+                    // Blue
+                    else {
+                        ("⬆️ ", Color::Rgb(97, 175, 239))
+                    }
                 } else {
                     // Regular directory - nf-fa-folder \uf07b
-                    if app.use_nerd_fonts { ("\u{f07b} ", Color::Rgb(229, 192, 123)) }  // Yellow
-                    else { ("📁 ", Color::Rgb(229, 192, 123)) }
+                    if app.use_nerd_fonts {
+                        ("\u{f07b} ", Color::Rgb(229, 192, 123))
+                    }
+                    // Yellow
+                    else {
+                        ("📁 ", Color::Rgb(229, 192, 123))
+                    }
                 }
             } else {
                 // Color based on file extension (Atom One Dark colors)
-                let ext = entry.path.extension()
+                let ext = entry
+                    .path
+                    .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("");
                 match ext {
                     "xyz" | "pdb" | "cif" => {
                         // nf-fa-flask \uf0c3
-                        if app.use_nerd_fonts { ("\u{f0c3} ", Color::Rgb(198, 120, 221)) }  // Purple
-                        else { ("🔬 ", Color::Rgb(198, 120, 221)) }
+                        if app.use_nerd_fonts {
+                            ("\u{f0c3} ", Color::Rgb(198, 120, 221))
+                        }
+                        // Purple
+                        else {
+                            ("🔬 ", Color::Rgb(198, 120, 221))
+                        }
                     }
                     "dat" | "csv" => {
                         // nf-fa-table \uf0ce
-                        if app.use_nerd_fonts { ("\u{f0ce} ", Color::Rgb(152, 195, 121)) }  // Green
-                        else { ("📊 ", Color::Rgb(152, 195, 121)) }
+                        if app.use_nerd_fonts {
+                            ("\u{f0ce} ", Color::Rgb(152, 195, 121))
+                        }
+                        // Green
+                        else {
+                            ("📊 ", Color::Rgb(152, 195, 121))
+                        }
                     }
                     "txt" | "log" => {
                         // nf-fa-file_text_o \uf0f6
-                        if app.use_nerd_fonts { ("\u{f0f6} ", Color::Rgb(171, 178, 191)) }  // Light gray
-                        else { ("📄 ", Color::Rgb(171, 178, 191)) }
+                        if app.use_nerd_fonts {
+                            ("\u{f0f6} ", Color::Rgb(171, 178, 191))
+                        }
+                        // Light gray
+                        else {
+                            ("📄 ", Color::Rgb(171, 178, 191))
+                        }
                     }
                     "rs" | "py" | "js" | "ts" => {
                         // nf-fa-code \uf121
-                        if app.use_nerd_fonts { ("\u{f121} ", Color::Rgb(86, 182, 194)) }  // Cyan
-                        else { ("💻 ", Color::Rgb(86, 182, 194)) }
+                        if app.use_nerd_fonts {
+                            ("\u{f121} ", Color::Rgb(86, 182, 194))
+                        }
+                        // Cyan
+                        else {
+                            ("💻 ", Color::Rgb(86, 182, 194))
+                        }
                     }
                     _ => {
                         // nf-fa-file_o \uf016
-                        if app.use_nerd_fonts { ("\u{f016} ", Color::Rgb(92, 99, 112)) }  // Dark gray
-                        else { ("📄 ", Color::Rgb(92, 99, 112)) }
+                        if app.use_nerd_fonts {
+                            ("\u{f016} ", Color::Rgb(92, 99, 112))
+                        }
+                        // Dark gray
+                        else {
+                            ("📄 ", Color::Rgb(92, 99, 112))
+                        }
                     }
                 }
             };
 
             let style = if i == app.selected_index {
                 Style::default()
-                    .fg(Color::Rgb(40, 44, 52))  // Dark background text
-                    .bg(Color::Rgb(97, 175, 239))  // Blue highlight
+                    .fg(Color::Rgb(40, 44, 52)) // Dark background text
+                    .bg(Color::Rgb(97, 175, 239)) // Blue highlight
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(color)
@@ -739,7 +775,8 @@ fn render_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
     // Show current directory in the title with scroll indicator
     let total = app.entries.len();
     let title = if total > visible_height {
-        format!("Files [{}-{}/{}]", 
+        format!(
+            "Files [{}-{}/{}]",
             app.file_tree_scroll + 1,
             (app.file_tree_scroll + visible_height).min(total),
             total
@@ -747,14 +784,13 @@ fn render_file_tree(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "Files".to_string()
     };
-    
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .title(title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Rgb(86, 182, 194))),  // Cyan
-        );
+
+    let list = List::new(items).block(
+        Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(86, 182, 194))), // Cyan
+    );
 
     f.render_widget(list, area);
 }
@@ -763,36 +799,40 @@ fn render_content_viewer(f: &mut Frame, app: &mut App, area: Rect) {
     // Calculate visible height for app state
     let visible_height = area.height.saturating_sub(2) as usize;
     app.visible_height = visible_height;
-    
+
     // Calculate line number width based on total lines
     let total_lines = app.file_content.len();
-    let line_num_width = if total_lines == 0 { 1 } else { (total_lines as f64).log10().floor() as usize + 1 };
-    
+    let line_num_width = if total_lines == 0 {
+        1
+    } else {
+        (total_lines as f64).log10().floor() as usize + 1
+    };
+
     // Build content lines with line numbers
     let mut lines: Vec<Line> = Vec::with_capacity(visible_height);
     let content_width = area.width.saturating_sub(2) as usize; // minus borders
-    
+
     for i in 0..visible_height {
         let content_idx = app.scroll_offset + i;
-        
+
         if content_idx < app.file_content.len() {
             let file_line = &app.file_content[content_idx];
             let line_num = content_idx + 1;
-            
+
             // Format line number
             let prefix = format!("{:>width$} │ ", line_num, width = line_num_width);
             let prefix_len = prefix.len();
-            
+
             // Truncate content if too long
             let available_width = content_width.saturating_sub(prefix_len);
             let display_content: String = file_line.chars().take(available_width).collect();
-            
+
             // Pad with spaces to fill entire width
             let padding_needed = available_width.saturating_sub(display_content.chars().count());
             let padded_content = format!("{}{}", display_content, " ".repeat(padding_needed));
-            
+
             lines.push(Line::from(vec![
-                Span::styled(prefix, Style::default().fg(Color::Rgb(92, 99, 112))),  // Dark gray
+                Span::styled(prefix, Style::default().fg(Color::Rgb(92, 99, 112))), // Dark gray
                 Span::raw(padded_content),
             ]));
         } else {
@@ -800,15 +840,14 @@ fn render_content_viewer(f: &mut Frame, app: &mut App, area: Rect) {
             lines.push(Line::from(" ".repeat(content_width)));
         }
     }
-    
-    let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(get_scroll_info(app, area))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Rgb(152, 195, 121))),  // Green
-        );
-    
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .title(get_scroll_info(app, area))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(152, 195, 121))), // Green
+    );
+
     f.render_widget(paragraph, area);
 }
 
@@ -817,7 +856,12 @@ fn get_scroll_info(app: &App, area: Rect) -> String {
     let total_lines = app.file_content.len();
     if total_lines > 0 {
         let end_line = (app.scroll_offset + visible_height).min(total_lines);
-        format!(" Content [{}-{}/{}] ", app.scroll_offset + 1, end_line, total_lines)
+        format!(
+            " Content [{}-{}/{}] ",
+            app.scroll_offset + 1,
+            end_line,
+            total_lines
+        )
     } else {
         " Content Viewer ".to_string()
     }
@@ -829,8 +873,8 @@ fn render_right_panel(f: &mut Frame, app: &App, area: Rect) {
         let right_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(60),  // Chart
-                Constraint::Percentage(40),  // Stats/Info
+                Constraint::Percentage(60), // Chart
+                Constraint::Percentage(40), // Stats/Info
             ])
             .split(area);
 
@@ -848,7 +892,7 @@ fn render_right_panel(f: &mut Frame, app: &App, area: Rect) {
 fn render_chart(f: &mut Frame, app: &App, area: Rect) {
     // Clear the chart area first to prevent Braille character artifacts
     f.render_widget(Clear, area);
-    
+
     // Check if we have chart data
     if app.chart_data.is_empty() {
         // Show placeholder when no data
@@ -865,7 +909,7 @@ fn render_chart(f: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .title(" Chart ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Rgb(198, 120, 221))),  // Purple
+                .border_style(Style::default().fg(Color::Rgb(198, 120, 221))), // Purple
         );
         f.render_widget(placeholder, area);
         return;
@@ -874,25 +918,25 @@ fn render_chart(f: &mut Frame, app: &App, area: Rect) {
     // Calculate available chart width for downsampling
     // Inner area is area minus borders (2 chars) minus y-axis labels (~8 chars)
     let chart_width = area.width.saturating_sub(12) as usize;
-    
+
     // Downsample if we have too many points
     // Use 2 * width to allow for min/max preservation per bucket
     let target_points = (chart_width * 2).max(50);
     let display_data = App::downsample_with_peaks(&app.chart_data, target_points);
-    
+
     // Format axis labels
     let (x_bounds, y_bounds) = app.chart_bounds;
-    
+
     // Create nice axis labels
     let x_labels = vec![
         format_axis_value(x_bounds[0]).bold(),
-        format_axis_value((x_bounds[0] + x_bounds[1]) / 2.0).into(),
+        format_axis_value((x_bounds[0] + x_bounds[1]) / 2.0),
         format_axis_value(x_bounds[1]).bold(),
     ];
-    
+
     let y_labels = vec![
         format_axis_value(y_bounds[0]).bold(),
-        format_axis_value((y_bounds[0] + y_bounds[1]) / 2.0).into(),
+        format_axis_value((y_bounds[0] + y_bounds[1]) / 2.0),
         format_axis_value(y_bounds[1]).bold(),
     ];
 
@@ -902,7 +946,7 @@ fn render_chart(f: &mut Frame, app: &App, area: Rect) {
             .name(format!("{} pts", app.chart_data.len()))
             .marker(Marker::Braille)
             .graph_type(GraphType::Scatter)
-            .style(Style::default().fg(Color::Rgb(86, 182, 194)))  // Cyan
+            .style(Style::default().fg(Color::Rgb(86, 182, 194))) // Cyan
             .data(&display_data),
     ];
 
@@ -911,7 +955,7 @@ fn render_chart(f: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .title(" Scatter Plot ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Rgb(198, 120, 221))),  // Purple
+                .border_style(Style::default().fg(Color::Rgb(198, 120, 221))), // Purple
         )
         .x_axis(
             Axis::default()
@@ -956,58 +1000,100 @@ fn render_stats(f: &mut Frame, app: &App, area: Rect) {
         //)),
         //Line::from(""),
     ];
-    
+
     for line in app.selected_file_stats.lines() {
         stats_lines.push(Line::from(Span::styled(
             line.to_string(),
-            Style::default().fg(Color::Rgb(171, 178, 191)),  // Light gray
+            Style::default().fg(Color::Rgb(171, 178, 191)), // Light gray
         )));
     }
 
-    let stats = Paragraph::new(stats_lines)
-        .block(
-            Block::default()
-                .title(" Info & Stats ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Rgb(229, 192, 123))),  // Yellow
-        );
+    let stats = Paragraph::new(stats_lines).block(
+        Block::default()
+            .title(" Info & Stats ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(229, 192, 123))), // Yellow
+    );
 
     f.render_widget(stats, area);
 }
 
 fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let nerd = app.use_nerd_fonts;
-    
+
     // Create shortcut hints with Atom colors
     let shortcuts = vec![
-        Span::styled(" ↑↓ ", Style::default().fg(Color::Rgb(40, 44, 52)).bg(Color::Rgb(97, 175, 239))),
+        Span::styled(
+            " ↑↓ ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(97, 175, 239)),
+        ),
         Span::styled(" Nav ", Style::default().fg(Color::Rgb(171, 178, 191))),
         Span::raw(" "),
-        Span::styled(" Enter ", Style::default().fg(Color::Rgb(40, 44, 52)).bg(Color::Rgb(152, 195, 121))),
+        Span::styled(
+            " Enter ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(152, 195, 121)),
+        ),
         Span::styled(" Open ", Style::default().fg(Color::Rgb(171, 178, 191))),
         Span::raw(" "),
-        Span::styled(" Bksp ", Style::default().fg(Color::Rgb(40, 44, 52)).bg(Color::Rgb(229, 192, 123))),
+        Span::styled(
+            " Bksp ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(229, 192, 123)),
+        ),
         Span::styled(" Parent ", Style::default().fg(Color::Rgb(171, 178, 191))),
         Span::raw(" "),
-        Span::styled(" j/k ", Style::default().fg(Color::Rgb(40, 44, 52)).bg(Color::Rgb(86, 182, 194))),
+        Span::styled(
+            " j/k ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(86, 182, 194)),
+        ),
         Span::styled(" Scroll ", Style::default().fg(Color::Rgb(171, 178, 191))),
         Span::raw(" "),
-        Span::styled(" u/d ", Style::default().fg(Color::Rgb(40, 44, 52)).bg(Color::Rgb(86, 182, 194))),
+        Span::styled(
+            " u/d ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(86, 182, 194)),
+        ),
         Span::styled(" Page ", Style::default().fg(Color::Rgb(171, 178, 191))),
         Span::raw(" "),
-        Span::styled(" c ", Style::default().fg(Color::Rgb(40, 44, 52)).bg(Color::Rgb(198, 120, 221))),
+        Span::styled(
+            " c ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(198, 120, 221)),
+        ),
         Span::styled(" Chart ", Style::default().fg(Color::Rgb(171, 178, 191))),
         Span::raw(" "),
-        Span::styled(" n ", Style::default().fg(Color::Rgb(40, 44, 52)).bg(Color::Rgb(209, 154, 102))),
-        Span::styled(if nerd { " Nerd✓ " } else { " Emoji " }, Style::default().fg(Color::Rgb(171, 178, 191))),
+        Span::styled(
+            " n ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(209, 154, 102)),
+        ),
+        Span::styled(
+            if nerd { " Nerd✓ " } else { " Emoji " },
+            Style::default().fg(Color::Rgb(171, 178, 191)),
+        ),
         Span::raw(" "),
-        Span::styled(" q ", Style::default().fg(Color::Rgb(40, 44, 52)).bg(Color::Rgb(224, 108, 117))),
+        Span::styled(
+            " q ",
+            Style::default()
+                .fg(Color::Rgb(40, 44, 52))
+                .bg(Color::Rgb(224, 108, 117)),
+        ),
         Span::styled(" Quit ", Style::default().fg(Color::Rgb(171, 178, 191))),
     ];
-    
-    let status = Paragraph::new(Line::from(shortcuts))
-        .style(Style::default().bg(Color::Rgb(33, 37, 43)));  // Slightly lighter than main bg
-    
+
+    let status =
+        Paragraph::new(Line::from(shortcuts)).style(Style::default().bg(Color::Rgb(33, 37, 43))); // Slightly lighter than main bg
+
     f.render_widget(status, area);
 }
 
@@ -1017,11 +1103,12 @@ fn render_path_bar(f: &mut Frame, app: &App, area: Rect) {
     } else {
         format!(" {}", app.current_directory.display())
     };
-    
-    let path_bar = Paragraph::new(path_text)
-        .style(Style::default()
-            .fg(Color::Rgb(171, 178, 191))  // Light gray text
-            .bg(Color::Rgb(40, 44, 52)));   // Dark background
-    
+
+    let path_bar = Paragraph::new(path_text).style(
+        Style::default()
+            .fg(Color::Rgb(171, 178, 191)) // Light gray text
+            .bg(Color::Rgb(40, 44, 52)),
+    ); // Dark background
+
     f.render_widget(path_bar, area);
 }
