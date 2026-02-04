@@ -73,6 +73,9 @@ The viewer automatically detects files with numeric data and displays a scatter 
 └────────────────────────────────────────────────────┴───────────────────────┘
 ```
 
+## Screenshot
+![Screenshot](app_screenshot.png)
+
 ## Building for Other Platforms
 
 The application is cross-platform and can be built on Windows, macOS, and Linux.
