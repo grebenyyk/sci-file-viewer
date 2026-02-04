@@ -1,6 +1,6 @@
 # Scientific File Viewer
 
-A terminal-based file viewer for scientific data files, built with Rust and [ratatui](https://github.com/ratatui/ratatui).
+A terminal-based file viewer for scientific data text files, proudly vibe coded with Rust and [ratatui](https://github.com/ratatui/ratatui).
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
@@ -14,12 +14,6 @@ A terminal-based file viewer for scientific data files, built with Rust and [rat
 - 📈 **Peak-Preserving Downsampling** - Efficient visualization of large datasets
 - 💾 **Session Persistence** - Remembers your last directory
 - 📏 **Line Numbers** - Easy reference for file contents
-
-## Supported File Formats
-
-- `.txt`, `.log` - Text files
-- `.dat`, `.csv` - Data files (with chart visualization)
-- `.xyz`, `.pdb`, `.cif` - Scientific structure files
 
 ## Installation
 
@@ -62,18 +56,9 @@ Download the pre-built binary for your platform from the [Releases](https://gith
 
 ### Chart Visualization
 
-The viewer automatically detects files with two-column numeric data and displays a scatter plot. Supported formats:
+The viewer automatically detects files with numeric data and displays a scatter plot.
 
-```
-# Comment lines are ignored
-1.0  2.5
-2.0  4.0
-3.0  3.5
-```
-
-Data can be separated by spaces, tabs, or commas.
-
-## Screenshots
+## Screen View
 
 ```
 ┌─ Files ─────────┬─ Content [1-30/150] ──────────────┬─ Scatter Plot ────────┐
@@ -127,9 +112,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
