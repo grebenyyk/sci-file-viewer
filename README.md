@@ -27,7 +27,7 @@ A terminal-based file viewer for scientific data files, built with Rust and [rat
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/sci-file-viewer.git
+git clone https://github.com/grebenyyk/sci-file-viewer.git
 cd sci-file-viewer
 
 # Build in release mode
@@ -39,7 +39,7 @@ cargo build --release
 
 ### From Releases
 
-Download the pre-built binary for your platform from the [Releases](https://github.com/yourusername/sci-file-viewer/releases) page.
+Download the pre-built binary for your platform from the [Releases](https://github.com/grebenyyk/sci-file-viewer/releases) page.
 
 ## Usage
 
