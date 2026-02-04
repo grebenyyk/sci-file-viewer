@@ -44,11 +44,6 @@ struct App {
     current_file: Option<PathBuf>,
     file_size: u64,
 
-    // Selected file info (for file tree focus)
-    selected_file_path: Option<PathBuf>,
-    selected_file_size: u64,
-    selected_file_stats: String,
-
     // UI state
     show_chart: bool,
     needs_resize: bool, // Trigger terminal resize to fix rendering
@@ -86,9 +81,6 @@ impl App {
             needs_resize: false,
             chart_data: Vec::new(),
             chart_bounds: ([0.0, 1.0], [0.0, 1.0]),
-            selected_file_path: None,
-            selected_file_size: 0,
-            selected_file_stats: "No file selected".to_string(),
         };
         app.refresh_directory();
         app
@@ -171,8 +163,6 @@ impl App {
 
             self.entries.extend(items);
         }
-
-        self.update_selected_file_info();
     }
 
     /// Navigate into a directory or open a file
@@ -401,91 +391,6 @@ impl App {
 
         result
     }
-
-    /// Update information about the currently selected file in the file tree
-    fn update_selected_file_info(&mut self) {
-        if let Some(entry) = self.entries.get(self.selected_index) {
-            let full_path = self.current_directory.join(&entry.name);
-            self.selected_file_path = Some(full_path.clone());
-
-            if entry.is_dir {
-                // For directories, calculate size and file count
-                let (dir_size, file_count) = self.calculate_directory_stats(&full_path);
-                self.selected_file_size = dir_size;
-
-                self.selected_file_stats = format!(
-                    "Type: Directory\nSize: {}\nFiles: {}",
-                    Self::format_size(dir_size),
-                    file_count
-                );
-            } else {
-                // For files, get metadata
-                match fs::metadata(&full_path) {
-                    Ok(metadata) => {
-                        self.selected_file_size = metadata.len();
-                        let (created, modified) = self.get_file_dates(&full_path);
-                        let line_count = self.estimate_line_count(&full_path);
-
-                        self.selected_file_stats = format!(
-                            "Type: File\nSize: {}\nLines: {}\nCreated: {}\nModified: {}",
-                            Self::format_size(self.selected_file_size),
-                            line_count,
-                            created,
-                            modified
-                        );
-                    }
-                    Err(_) => {
-                        self.selected_file_size = 0;
-                        self.selected_file_stats = format!(
-                            "Type: File\nPath: {}\nName: {}\n(Error reading metadata)",
-                            full_path.display(),
-                            entry.name
-                        );
-                    }
-                }
-            }
-        } else {
-            self.selected_file_path = None;
-            self.selected_file_size = 0;
-            self.selected_file_stats = "No file selected".to_string();
-        }
-    }
-
-    /// Estimate line count for a file (reads first 1024 bytes to estimate)
-    fn estimate_line_count(&self, path: &PathBuf) -> usize {
-        match fs::read_to_string(path) {
-            Ok(content) => content.lines().count(),
-            Err(_) => 0,
-        }
-    }
-
-    /// Calculate directory size and file count
-    fn calculate_directory_stats(&self, path: &PathBuf) -> (u64, usize) {
-        let mut total_size = 0u64;
-        let mut file_count = 0usize;
-
-        fn walk_dir(
-            dir_path: &PathBuf,
-            total_size: &mut u64,
-            file_count: &mut usize,
-        ) -> std::io::Result<()> {
-            for entry in fs::read_dir(dir_path)? {
-                let entry = entry?;
-                let path = entry.path();
-
-                if path.is_dir() {
-                    walk_dir(&path, total_size, file_count)?;
-                } else if let Ok(metadata) = entry.metadata() {
-                    *total_size += metadata.len();
-                    *file_count += 1;
-                }
-            }
-            Ok(())
-        }
-
-        let _ = walk_dir(path, &mut total_size, &mut file_count);
-        (total_size, file_count)
-    }
 }
 
 fn main() -> Result<(), io::Error> {
@@ -537,13 +442,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                 KeyCode::Up => {
                     if app.selected_index > 0 {
                         app.selected_index -= 1;
-                        app.update_selected_file_info();
                     }
                 }
                 KeyCode::Down => {
                     if app.selected_index < app.entries.len().saturating_sub(1) {
                         app.selected_index += 1;
-                        app.update_selected_file_info();
                     }
                 }
                 KeyCode::Enter => {
@@ -991,7 +894,7 @@ fn format_axis_value(val: f64) -> Span<'static> {
 }
 
 fn render_stats(f: &mut Frame, app: &App, area: Rect) {
-    // Build stats lines from selected_file_stats (which may contain newlines)
+    // Build stats lines from file_stats (opened file)
     let mut stats_lines: Vec<Line> = vec![
         // Line::from(""),
         // Line::from(Span::styled(
@@ -1001,7 +904,7 @@ fn render_stats(f: &mut Frame, app: &App, area: Rect) {
         //Line::from(""),
     ];
 
-    for line in app.selected_file_stats.lines() {
+    for line in app.file_stats.lines() {
         stats_lines.push(Line::from(Span::styled(
             line.to_string(),
             Style::default().fg(Color::Rgb(171, 178, 191)), // Light gray
@@ -1098,7 +1001,7 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_path_bar(f: &mut Frame, app: &App, area: Rect) {
-    let path_text = if let Some(ref file_path) = app.selected_file_path {
+    let path_text = if let Some(ref file_path) = app.current_file {
         format!(" {}", file_path.display())
     } else {
         format!(" {}", app.current_directory.display())
