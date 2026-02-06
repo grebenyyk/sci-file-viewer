@@ -15,6 +15,7 @@ use ratatui::{
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
+use unicode_width::UnicodeWidthChar;
 
 /// Represents an entry in the file browser
 struct FileEntry {
@@ -46,7 +47,6 @@ struct App {
 
     // UI state
     show_chart: bool,
-    needs_resize: bool, // Trigger terminal resize to fix rendering
     show_recent_files: bool, // Show recent files popup
 
     // Chart data
@@ -75,7 +75,6 @@ impl App {
                 "".to_string(),
                 "Select a file and press Enter to view its contents.".to_string(),
                 "".to_string(),
-                "Supported formats: .txt, .dat, .cif, .xyz, .pdb".to_string(),
             ],
             scroll_offset: 0,
             visible_height: 20,
@@ -83,7 +82,6 @@ impl App {
             current_file: None,
             file_size: 0,
             show_chart: true,
-            needs_resize: false,
             show_recent_files: false,
             chart_data: Vec::new(),
             chart_bounds: ([0.0, 1.0], [0.0, 1.0]),
@@ -201,7 +199,6 @@ impl App {
     fn open_file(&mut self, path: &PathBuf) {
         self.current_file = Some(path.clone());
         self.scroll_offset = 0;
-        self.needs_resize = true; // Trigger resize to fix terminal rendering
         self.chart_data.clear();
         
         // Add to recent files
@@ -412,6 +409,21 @@ impl App {
 
         result
     }
+
+    /// Reveal a file in the tree by switching to its directory and selecting it
+    fn reveal_file_in_tree(&mut self, path: &PathBuf) {
+        if let Some(parent) = path.parent() {
+            self.current_directory = parent.to_path_buf();
+            self.refresh_directory();
+            if let Some(pos) = self
+                .entries
+                .iter()
+                .position(|entry| !entry.is_dir && entry.path == *path)
+            {
+                self.selected_index = pos;
+            }
+        }
+    }
 }
 
 fn main() -> Result<(), io::Error> {
@@ -446,12 +458,6 @@ fn main() -> Result<(), io::Error> {
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
     loop {
-        // Clear the whole terminal when switching files to fix artifacts
-        if app.needs_resize {
-            terminal.clear()?;
-            app.needs_resize = false;
-        }
-
         terminal.draw(|f| ui(f, app))?;
 
         if let Event::Key(key) = event::read()? {
@@ -482,6 +488,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                             if let Some(path) = app.recent_files.get(app.recent_files_selected) {
                                 let path = path.clone();
                                 app.show_recent_files = false;
+                                app.reveal_file_in_tree(&path);
                                 app.open_file(&path);
                             }
                         }
@@ -497,13 +504,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                     return Ok(());
                 }
                 KeyCode::Up => {
-                    if app.selected_index > 0 {
-                        app.selected_index -= 1;
+                    if !app.entries.is_empty() {
+                        app.selected_index = app.selected_index.checked_sub(1)
+                            .unwrap_or(app.entries.len() - 1);
                     }
                 }
                 KeyCode::Down => {
-                    if app.selected_index < app.entries.len().saturating_sub(1) {
-                        app.selected_index += 1;
+                    if !app.entries.is_empty() {
+                        app.selected_index = (app.selected_index + 1) % app.entries.len();
                     }
                 }
                 KeyCode::Enter => {
@@ -518,39 +526,28 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                 }
                 // Content scrolling
                 KeyCode::Char('j') => {
-                    let old_offset = app.scroll_offset;
-                    app.scroll_offset = app.scroll_offset.saturating_add(1);
-                    if app.scroll_offset != old_offset {
-                        app.needs_resize = true;
-                    }
+                    let max_scroll = app.file_content.len().saturating_sub(app.visible_height);
+                    app.scroll_offset = (app.scroll_offset + 1).min(max_scroll);
                 }
                 KeyCode::Char('k') => {
-                    let old_offset = app.scroll_offset;
                     app.scroll_offset = app.scroll_offset.saturating_sub(1);
-                    if app.scroll_offset != old_offset {
-                        app.needs_resize = true;
-                    }
                 }
                 KeyCode::Char('u') | KeyCode::PageUp => {
                     // Page up in content
                     app.scroll_offset = app.scroll_offset.saturating_sub(app.visible_height);
-                    app.needs_resize = true;
                 }
                 KeyCode::Char('d') | KeyCode::PageDown => {
                     // Page down in content
                     let max_scroll = app.file_content.len().saturating_sub(app.visible_height);
                     app.scroll_offset = (app.scroll_offset + app.visible_height).min(max_scroll);
-                    app.needs_resize = true;
                 }
                 KeyCode::Home => {
                     // Go to start of file
                     app.scroll_offset = 0;
-                    app.needs_resize = true;
                 }
                 KeyCode::End => {
                     // Go to end of file
                     app.scroll_offset = app.file_content.len().saturating_sub(app.visible_height);
-                    app.needs_resize = true;
                 }
                 // Directory navigation
                 KeyCode::Char('.') => {
@@ -563,12 +560,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                 }
                 KeyCode::Char('c') => {
                     app.show_chart = !app.show_chart;
-                    app.needs_resize = true;
                 }
                 KeyCode::Char('n') => {
                     // Toggle nerd fonts vs emoji
                     app.use_nerd_fonts = !app.use_nerd_fonts;
-                    app.needs_resize = true;
                 }
                 KeyCode::Char('r') => {
                     // Refresh directory
@@ -795,10 +790,11 @@ fn render_content_viewer(f: &mut Frame, app: &mut App, area: Rect) {
 
             // Truncate content if too long
             let available_width = content_width.saturating_sub(prefix_len);
-            let display_content: String = file_line.chars().take(available_width).collect();
+            let sanitized = sanitize_line(file_line, 4);
+            let (display_content, display_width) = truncate_to_width(&sanitized, available_width);
 
             // Pad with spaces to fill entire width
-            let padding_needed = available_width.saturating_sub(display_content.chars().count());
+            let padding_needed = available_width.saturating_sub(display_width);
             let padded_content = format!("{}{}", display_content, " ".repeat(padding_needed));
 
             lines.push(Line::from(vec![
@@ -819,6 +815,53 @@ fn render_content_viewer(f: &mut Frame, app: &mut App, area: Rect) {
     );
 
     f.render_widget(paragraph, area);
+}
+
+fn sanitize_line(input: &str, tab_width: usize) -> String {
+    let mut out = String::new();
+    let mut col = 0usize;
+
+    for ch in input.chars() {
+        if ch == '\r' {
+            continue;
+        }
+        if ch == '\t' {
+            let spaces = tab_width.saturating_sub(col % tab_width).max(1);
+            out.push_str(&" ".repeat(spaces));
+            col += spaces;
+            continue;
+        }
+        if ch.is_control() {
+            out.push(' ');
+            col += 1;
+            continue;
+        }
+
+        out.push(ch);
+        col += UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+    }
+
+    out
+}
+
+fn truncate_to_width(input: &str, max_width: usize) -> (String, usize) {
+    if max_width == 0 {
+        return (String::new(), 0);
+    }
+
+    let mut out = String::new();
+    let mut width = 0usize;
+
+    for ch in input.chars() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+        if width + ch_width > max_width {
+            break;
+        }
+        out.push(ch);
+        width += ch_width;
+    }
+
+    (out, width)
 }
 
 fn get_scroll_info(app: &App, area: Rect) -> String {
@@ -870,10 +913,6 @@ fn render_chart(f: &mut Frame, app: &App, area: Rect) {
             Line::from(""),
             Line::from("  No numeric data"),
             Line::from("  detected."),
-            Line::from(""),
-            Line::from("  Open a two-column"),
-            Line::from("  data file to see"),
-            Line::from("  a scatter plot."),
         ])
         .block(
             Block::default()

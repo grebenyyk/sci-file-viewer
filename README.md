@@ -15,6 +15,13 @@ A terminal-based file viewer for scientific data text files, proudly vibe coded 
 - 💾 **Session Persistence** - Remembers your last directory
 - 📏 **Line Numbers** - Easy reference for file contents
 
+## Release Notes
+
+### 0.2.0
+
+- Removed terminal flicker.
+- Enhanced history.
+
 ## Installation
 
 ### From Source

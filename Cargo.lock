@@ -518,6 +518,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "ratatui",
+ "unicode-width 0.1.14",
 ]
 
 [[package]]
