@@ -484,13 +484,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                         continue;
                     }
                     KeyCode::Enter => {
-                        if !app.recent_files.is_empty() {
-                            if let Some(path) = app.recent_files.get(app.recent_files_selected) {
-                                let path = path.clone();
-                                app.show_recent_files = false;
-                                app.reveal_file_in_tree(&path);
-                                app.open_file(&path);
-                            }
+                        if !app.recent_files.is_empty()
+                            && let Some(path) = app.recent_files.get(app.recent_files_selected)
+                        {
+                            let path = path.clone();
+                            app.show_recent_files = false;
+                            app.reveal_file_in_tree(&path);
+                            app.open_file(&path);
                         }
                         continue;
                     }
@@ -1134,7 +1134,7 @@ fn render_recent_files_popup(f: &mut Frame, app: &App) {
     let area = f.area();
     
     // Calculate popup size (centered, 50% width, up to 14 lines height)
-    let popup_width = (area.width as f32 * 0.5).min(60.0).max(30.0) as u16;
+    let popup_width = (area.width as f32 * 0.5).clamp(30.0, 60.0) as u16;
     let popup_height = if app.recent_files.is_empty() {
         5 // Minimum height for "no history" message
     } else {
