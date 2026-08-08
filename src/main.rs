@@ -231,17 +231,10 @@ impl App {
                 } else {
                     String::new()
                 };
-                self.file_stats = format!(
-                    "{}\nLines: {}{}",
-                    file_metadata,
-                    line_count,
-                    chart_info
-                );
+                self.file_stats = format!("{}\nLines: {}{}", file_metadata, line_count, chart_info);
             }
             Err(_e) => {
-                self.file_content = vec![
-                    "Binary file — no text content to display".to_string(),
-                ];
+                self.file_content = vec!["Binary file — no text content to display".to_string()];
                 self.file_stats = file_metadata;
             }
         }
@@ -472,7 +465,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                         if app.recent_files.is_empty() {
                             continue;
                         }
-                        app.recent_files_selected = app.recent_files_selected.checked_sub(1)
+                        app.recent_files_selected = app
+                            .recent_files_selected
+                            .checked_sub(1)
                             .unwrap_or(app.recent_files.len() - 1);
                         continue;
                     }
@@ -480,7 +475,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                         if app.recent_files.is_empty() {
                             continue;
                         }
-                        app.recent_files_selected = (app.recent_files_selected + 1) % app.recent_files.len();
+                        app.recent_files_selected =
+                            (app.recent_files_selected + 1) % app.recent_files.len();
                         continue;
                     }
                     KeyCode::Enter => {
@@ -505,7 +501,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                 }
                 KeyCode::Up => {
                     if !app.entries.is_empty() {
-                        app.selected_index = app.selected_index.checked_sub(1)
+                        app.selected_index = app
+                            .selected_index
+                            .checked_sub(1)
                             .unwrap_or(app.entries.len() - 1);
                     }
                 }
