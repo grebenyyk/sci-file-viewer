@@ -200,7 +200,7 @@ impl App {
         self.current_file = Some(path.clone());
         self.scroll_offset = 0;
         self.chart_data.clear();
-        
+
         // Add to recent files
         self.add_to_recent_files(path);
 
@@ -497,7 +497,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                     _ => {}
                 }
             }
-            
+
             match key.code {
                 KeyCode::Char('q') => {
                     app.save_last_directory();
@@ -1132,7 +1132,7 @@ fn render_path_bar(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_recent_files_popup(f: &mut Frame, app: &App) {
     let area = f.area();
-    
+
     // Calculate popup size (centered, 50% width, up to 14 lines height)
     let popup_width = (area.width as f32 * 0.5).clamp(30.0, 60.0) as u16;
     let popup_height = if app.recent_files.is_empty() {
@@ -1140,15 +1140,15 @@ fn render_recent_files_popup(f: &mut Frame, app: &App) {
     } else {
         (app.recent_files.len() as u16 + 4).min(14)
     };
-    
+
     let popup_x = (area.width - popup_width) / 2;
     let popup_y = (area.height - popup_height) / 2;
-    
+
     let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
-    
+
     // Clear the popup area
     f.render_widget(Clear, popup_area);
-    
+
     if app.recent_files.is_empty() {
         // Show "no history" message
         let message = Paragraph::new(vec![
@@ -1167,7 +1167,7 @@ fn render_recent_files_popup(f: &mut Frame, app: &App) {
         f.render_widget(message, popup_area);
         return;
     }
-    
+
     // Create list items showing only the file name (end part of path)
     let items: Vec<ListItem> = app
         .recent_files
@@ -1179,7 +1179,7 @@ fn render_recent_files_popup(f: &mut Frame, app: &App) {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("Unknown");
-            
+
             let style = if i == app.recent_files_selected {
                 Style::default()
                     .fg(Color::Rgb(40, 44, 52)) // Dark background text
@@ -1188,17 +1188,17 @@ fn render_recent_files_popup(f: &mut Frame, app: &App) {
             } else {
                 Style::default().fg(Color::Rgb(171, 178, 191)) // Light gray
             };
-            
+
             ListItem::new(Line::from(Span::styled(display_name.to_string(), style)))
         })
         .collect();
-    
+
     let list = List::new(items).block(
         Block::default()
             .title(" Recent Files ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Rgb(198, 120, 221))), // Purple
     );
-    
+
     f.render_widget(list, popup_area);
 }
